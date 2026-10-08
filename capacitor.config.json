@@ -1,0 +1,6 @@
+{
+  "appId": "com.marwan.plancalc",
+  "appName": "Plan Calc",
+  "webDir": "www",
+  "android": { "backgroundColor": "#0b1020" }
+}

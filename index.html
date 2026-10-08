@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Plan Calculator – find out how much cash you need to charge your plan.">
+<meta name="theme-color" content="#0b1020">
+<title>Plan Calc</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: rgba(255,255,255,.07);
+    --border: rgba(255,255,255,.16);
+    --text: #eef1ff;
+    --muted: #9aa4c7;
+    --accent: #5eead4;
+    --accent2: #818cf8;
+    --danger: #fb7185;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif; }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; }
+  main { position: relative; z-index: 1; min-height: 100vh; min-height: 100dvh;
+    display: grid; place-items: center; padding: clamp(16px, 4vw, 48px);
+    padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .card { width: min(100%, 440px); padding: clamp(20px, 4vw, 32px); border-radius: 24px;
+    background: var(--card); border: 1px solid var(--border);
+    backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 30px 80px rgba(0,0,0,.45); }
+  h1 { margin: 0 0 4px; font-size: clamp(1.4rem, 5vw, 1.9rem); letter-spacing: .3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { margin: 0 0 22px; color: var(--muted); font-size: .95rem; }
+  label { display: block; margin-bottom: 8px; font-weight: 600; font-size: .95rem; }
+  .field { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 14px;
+    background: rgba(0,0,0,.28); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
+  .field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94,234,212,.15); }
+  .field.invalid { border-color: var(--danger); }
+  .field span { color: var(--muted); font-size: .9rem; }
+  input[type=number] { flex: 1; min-width: 0; padding: 14px 0; border: 0; outline: 0; background: transparent;
+    color: var(--text); font-size: 1.15rem; -moz-appearance: textfield; }
+  input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .error { min-height: 1.2em; margin: 8px 2px 0; color: var(--danger); font-size: .85rem; }
+  button { width: 100%; margin-top: 10px; padding: 14px; border: 0; border-radius: 14px; cursor: pointer;
+    font-size: 1rem; font-weight: 700; color: #06101a;
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: transform .15s, filter .2s; }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: scale(.98); }
+  button:disabled { opacity: .6; cursor: wait; }
+  .result { margin-top: 22px; padding: 16px; border-radius: 16px; background: rgba(0,0,0,.28);
+    border: 1px dashed var(--border); text-align: center; }
+  .result label { margin: 0 0 6px; color: var(--muted); font-weight: 500; }
+  output { display: block; font-size: clamp(1.8rem, 8vw, 2.4rem); font-weight: 800; color: var(--accent);
+    font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; color: var(--muted); font-size: .78rem; }
+  .copy { margin-top: 12px; background: transparent; color: var(--text); border: 1px solid var(--border); padding: 10px; font-weight: 600; }
+  .copy[hidden] { display: none; }
+  .formula { margin-top: 14px; color: var(--muted); font-size: .8rem; text-align: center; }
+  @media (max-width: 380px) { .meta { flex-direction: column; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-hidden="true"></canvas>
+
+<main>
+  <section class="card" aria-labelledby="title">
+    <h1 id="title">Plan Calculator</h1>
+    <p class="sub">احسب الكاش اللي لازم يكون معاك لشحن الباقة</p>
+
+    <form id="form" novalidate>
+      <label for="cost">Enter your plan cost</label>
+      <div class="field" id="field">
+        <input type="number" id="cost" name="cost" inputmode="decimal" min="0" step="any" placeholder="e.g. 100" autocomplete="off" required>
+        <span>EGP</span>
+      </div>
+      <p class="error" id="error" role="alert"></p>
+      <button type="submit" id="btn">Calculate</button>
+    </form>
+
+    <div class="result">
+      <label for="result">You Must Have Cash</label>
+      <output id="result" for="cost" aria-live="polite">—</output>
+      <button type="button" class="copy" id="copy" hidden>Copy amount</button>
+      <div class="meta"><span id="source">Source: —</span><span id="status"></span></div>
+    </div>
+    <p class="formula">cash = (plan × 100) ÷ 70 + 5</p>
+  </section>
+</main>
+
+<script src="three.min.js"></script>
+<script>
+/* ---------- Calculator logic ---------- */
+const $ = id => document.getElementById(id);
+const form = $('form'), cost = $('cost'), field = $('field'), err = $('error'),
+      out = $('result'), btn = $('btn'), copyBtn = $('copy'), src = $('source');
+let lastValue = null;
+
+// same formula as the C++ backend (used only if the server is unreachable)
+const localCalc = plan => (plan * 100) / 70 + 5;
+const fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function setError(msg) { err.textContent = msg; field.classList.toggle('invalid', !!msg); }
+
+async function calculate(plan) {
+  if (window.Capacitor) return { value: localCalc(plan), from: 'On-device' };
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const r = await fetch('/api/calc?plan=' + encodeURIComponent(plan), { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) throw new Error('bad status');
+    const data = await r.json();
+    if (typeof data.money !== 'number') throw new Error('bad body');
+    return { value: data.money, from: 'C++ server' };
+  } catch (e) {
+    return { value: localCalc(plan), from: 'Offline (JS fallback)' };
+  }
+}
+
+form.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const raw = cost.value.trim();
+  const plan = parseFloat(raw);
+  if (raw === '' || !isFinite(plan)) return setError('Please enter a valid number.');
+  if (plan < 0) return setError('Plan cost cannot be negative.');
+  if (plan > 1e9) return setError('That number is too large.');
+  setError('');
+  btn.disabled = true; btn.textContent = 'Calculating…';
+  const { value, from } = await calculate(plan);
+  lastValue = value;
+  out.textContent = fmt(value) + ' EGP';
+  src.textContent = 'Source: ' + from;
+  copyBtn.hidden = false;
+  btn.disabled = false; btn.textContent = 'Calculate';
+  pulse();
+});
+cost.addEventListener('input', () => setError(''));
+
+copyBtn.addEventListener('click', async () => {
+  if (lastValue == null) return;
+  const text = lastValue.toFixed(2);
+  try { await navigator.clipboard.writeText(text); copyBtn.textContent = 'Copied ✓'; }
+  catch { copyBtn.textContent = 'Copy failed'; }
+  setTimeout(() => copyBtn.textContent = 'Copy amount', 1400);
+});
+
+/* ---------- three.js scene ---------- */
+let pulseT = 0;
+function pulse() { pulseT = 1; }
+
+(function initScene() {
+  const canvas = $('scene');
+  if (!window.THREE) { canvas.style.background = 'radial-gradient(circle at 30% 20%, #1b2550, #0b1020)'; return; }
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x0b1020, 0.045);
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 0, 9);
+
+  scene.add(new THREE.AmbientLight(0x8899ff, 0.6));
+  const key = new THREE.PointLight(0x5eead4, 2.2, 40); key.position.set(5, 5, 6); scene.add(key);
+  const rim = new THREE.PointLight(0x818cf8, 2.2, 40); rim.position.set(-6, -3, 4); scene.add(rim);
+
+  // central coin
+  const coin = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.6, 1.6, 0.32, 64),
+    new THREE.MeshStandardMaterial({ color: 0xf5c451, metalness: .9, roughness: .25 }));
+  body.rotation.x = Math.PI / 2;
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(1.45, 0.08, 16, 64),
+    new THREE.MeshStandardMaterial({ color: 0xffe08a, metalness: 1, roughness: .2 }));
+  ring.position.z = 0.17;
+  const ring2 = ring.clone(); ring2.position.z = -0.17;
+  coin.add(body, ring, ring2);
+  scene.add(coin);
+
+  // orbiting small coins
+  const minis = [];
+  const miniGeo = new THREE.CylinderGeometry(.28, .28, .07, 24);
+  const miniMat = new THREE.MeshStandardMaterial({ color: 0x5eead4, metalness: .8, roughness: .3 });
+  for (let i = 0; i < 14; i++) {
+    const m = new THREE.Mesh(miniGeo, miniMat);
+    m.userData = { a: Math.random() * Math.PI * 2, r: 3 + Math.random() * 3.5,
+                   s: .15 + Math.random() * .3, y: (Math.random() - .5) * 4, spin: Math.random() * 2 + .5 };
+    minis.push(m); scene.add(m);
+  }
+
+  // particles
+  const N = 500, pos = new Float32Array(N * 3);
+  for (let i = 0; i < N * 3; i++) pos[i] = (Math.random() - .5) * 30;
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const points = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0x9aa4ff, size: .05, transparent: true, opacity: .8 }));
+  scene.add(points);
+
+  // responsive layout
+  function resize() {
+    const w = innerWidth, h = innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    // push the coin behind the card on small screens, to the side on wide ones
+    const wide = w / h > 1.1;
+    coin.position.set(wide ? -3.4 : 0, wide ? 0 : 3.2, 0);
+    coin.scale.setScalar(wide ? 1 : .7);
+    camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  let mx = 0, my = 0;
+  addEventListener('pointermove', e => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; });
+
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const clock = new THREE.Clock();
+  (function loop() {
+    const t = clock.getElapsedTime();
+    const k = reduce ? 0 : 1;
+    pulseT = Math.max(0, pulseT - .02);
+    coin.rotation.y = t * .8 * k + pulseT * Math.PI * 2;
+    coin.rotation.x = Math.sin(t * .6) * .25 * k;
+    coin.position.y += (Math.sin(t) * .15 * k - (coin.position.y - (innerWidth / innerHeight > 1.1 ? 0 : 3.2))) * .02;
+    minis.forEach(m => {
+      const d = m.userData, a = d.a + t * d.s * k;
+      m.position.set(Math.cos(a) * d.r, d.y + Math.sin(t + d.a) * .3 * k, Math.sin(a) * d.r - 3);
+      m.rotation.x = t * d.spin * k; m.rotation.z = t * .5 * k;
+    });
+    points.rotation.y = t * .02 * k;
+    camera.position.x += (mx * 1.2 - camera.position.x) * .04;
+    camera.position.y += (-my * 1.2 - camera.position.y) * .04;
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  })();
+})();
+</script>
+</body>
+</html>
